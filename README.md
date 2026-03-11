@@ -1,7 +1,46 @@
 <div align="center">
 
 # 🎨 Lanhu MCP Server | 蓝湖MCP服务器2.0
+## 🚀 跨设备快速配置指南 (MCP Desktop / Claude)
 
+由于不同电脑的 Python 路径和项目路径各不相同，当您在另一台机器上克隆本项目后，可以使用以下两种方式快速完成配置。
+
+### 方式一：自动生成（推荐）
+
+在项目根目录下，激活您的虚拟环境后运行：
+
+```bash
+python scripts/setup_mcp.py
+```
+
+该脚本会自动打印出适配当前环境的 `mcp_config.json` 配置块，您直接复制粘贴即可。
+
+### 方式二：手动配置模板
+
+如果无法运行脚本，请参考以下模板更新您的 `mcp_config.json`：
+
+```json
+{
+  "mcpServers": {
+    "lanhu": {
+      "command": "C:\\path\\to\\your\\venv\\Scripts\\python.exe",
+      "args": [
+        "C:\\path\\to\\lanhu-mcp\\lanhu_mcp_server.py",
+        "--stdio"
+      ],
+      "env": {
+        "LANHU_COOKIE": "来自浏览器控制台 document.cookie",
+        "MCP_USER_NAME": "您的名字",
+        "MCP_USER_ROLE": "您的角色"
+      }
+    }
+  }
+}
+```
+
+> [!IMPORTANT]
+> - **Python 路径**: 必须使用虚拟环境中的 Python 路径（包含已安装的 `fastmcp` 等依赖）。
+> - **stdio 参数**: `args` 中必须包含 `--stdio` 标志。
 **让所有 AI 助手共享团队知识，打破 AI IDE 孤岛**
 
 **lanhumcp | 蓝湖mcp | lanhu-mcp | 蓝湖AI助手 | Lanhu AI Integration**
