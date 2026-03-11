@@ -2087,22 +2087,28 @@ class MessageStore:
 
 def get_user_info(ctx: Context) -> tuple:
     """
-    从URL query参数获取用户信息
+    获取用户信息
     
-    MCP连接URL格式：http://xxx:port/mcp?role=后端&name=张三
+    1. 优先尝试从 Context/HTTP 请求获取（HTTP 模式）
+    2. 如果失败，尝试从环境变量获取（stdio 模式）
     """
+    # 尝试读取环境变量（stdio 模式通常通过 env 传递用户信息）
+    env_name = os.getenv("MCP_USER_NAME")
+    env_role = os.getenv("MCP_USER_ROLE")
+    
     try:
         # 使用 FastMCP 提供的 get_http_request 获取当前请求
         from fastmcp.server.dependencies import get_http_request
         req = get_http_request()
         
         # 从 query 参数获取
-        name = req.query_params.get('name', '匿名')
-        role = req.query_params.get('role', '未知')
+        name = req.query_params.get('name', env_name or '匿名')
+        role = req.query_params.get('role', env_role or '未知')
         return name, role
     except Exception:
         pass
-    return '匿名', '未知'
+        
+    return env_name or '匿名', env_role or '未知'
 
 
 def _clean_message_dict(msg: dict, current_user_name: str = None) -> dict:
@@ -5948,11 +5954,21 @@ async def lanhu_get_members(
 
 
 if __name__ == "__main__":
-    # 运行MCP服务器
-    # 使用HTTP传输方式，支持环境变量配置
-    SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
-    SERVER_PORT = int(os.getenv("SERVER_PORT", "8100"))
-    mcp.run(transport="http", path="/mcp", host=SERVER_HOST, port=SERVER_PORT)
+    import sys
+    
+    # 检查是否使用 stdio 模式 (直接检查 argv 是否包含 stdio)
+    # 如果 sys.argv 中有 stdio，则以 stdio 模式运行
+    # 如果没有 stdio，则以 HTTP 模式运行（保持向后兼容）
+    is_stdio = any("stdio" in arg.lower() for arg in sys.argv)
+    
+    if is_stdio:
+        # stdio 模式运行
+        mcp.run()
+    else:
+        # 运行以 HTTP/SSE 传输方式启动的服务器
+        SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
+        SERVER_PORT = int(os.getenv("SERVER_PORT", "8100"))
+        mcp.run(transport="http", path="/mcp", host=SERVER_HOST, port=SERVER_PORT)
 
 
 
