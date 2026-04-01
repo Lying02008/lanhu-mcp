@@ -4736,6 +4736,36 @@ async def lanhu_get_ai_analyze_design_result(
             HTML+CSS, use the Design Token value as a supplement.
             Focus on: gradients, border styles, border-radius, opacity, shadows.
 
+        RULE 5 - POST-GENERATION FIDELITY AUDIT (MANDATORY, NEVER SKIP):
+            After generating code in ANY target platform/language (HTML/CSS, React,
+            Vue, Flutter, SwiftUI, Android Compose, etc.), perform a property-by-property
+            comparison against the design spec HTML+CSS. Map each CSS property to its
+            platform equivalent and verify the value is preserved exactly:
+              ① size constraint: fixed height in spec → must NOT become flexible/wrap
+                  HTML: height not min-height | Flutter: fixed SizedBox, not Flexible
+                  SwiftUI: .frame(height:) not omitted | Compose: height() not wrapContent
+              ② clipping: overflow:hidden in spec → must clip content in all platforms
+                  HTML: overflow:hidden | Flutter: ClipRect/ClipRRect | SwiftUI: .clipped()
+                  Compose: clip()/clipToBounds | Android: android:clipChildren="true"
+              ③ color value: rgba(r,g,b,a) must be converted to platform format exactly
+                  HTML: keep rgba() | Flutter: Color.fromRGBO() | SwiftUI: Color(red:green:blue:opacity:)
+                  Compose: Color(r,g,b,a) | Android XML: #AARRGGBB — values must not drift
+              ④ gradient: linear-gradient must map to platform gradient, not solid color
+                  Flutter: LinearGradient | SwiftUI: LinearGradient | Compose: Brush.linearGradient
+              ⑤ absolute positioning: left/top values must map to exact offsets
+                  Flutter: Positioned(left:,top:) | SwiftUI: .offset() or .position()
+                  Compose: Box+Modifier.offset() | HTML: position:absolute + left/top
+              ⑥ font: family, weight, size must all be preserved; fallback list for HTML
+              ⑦ spacing: every margin/padding direction value must be unchanged
+                  HTML: margin/padding | Flutter: EdgeInsets | SwiftUI: .padding()
+                  Compose: Modifier.padding() | Android: android:layout_margin / android:padding
+              ⑧ image assets: no image replaced by SVG/CSS shape/emoji/placeholder
+              ⑨ element completeness: every visible element in spec must appear in code
+              ⑩ no remote URLs: no lanhu CDN URLs in any generated asset path
+            For each difference found, state explicitly whether it is an intentional
+            platform adaptation (e.g. px→dp unit conversion) or an error (value changed).
+            All errors MUST be corrected before delivering the final code.
+
         DESIGN IMAGE is for visual verification ONLY. It has the LOWEST priority.
         NEVER use the design image to override any CSS value from the HTML+CSS code.
     """
@@ -4759,7 +4789,11 @@ async def lanhu_get_ai_analyze_design_result(
 
         designs = designs_data['designs']
 
-        # 确定要截图的设计图：仅 all / 精准序号（数字=第 N 个）/ 精准名称，无模糊
+        # 确定要截图的设计图：
+        # 1. 'all' - 所有设计图
+        # 2. 数字序号 - 第 N 个设计图（按 index 字段）
+        # 3. 精确名称 - 按 name 字段精确匹配
+        # 4. URL 中的 image_id - 按 id 字段匹配（当 design_names 为空或 None 时自动使用）
         if isinstance(design_names, str) and design_names.lower() == 'all':
             target_designs = designs
         else:
@@ -4767,7 +4801,11 @@ async def lanhu_get_ai_analyze_design_result(
                 design_names = [design_names]
             seen_ids = set()
             target_designs = []
-            for name in design_names:
+
+            # 如果 design_names 为空或 None，尝试使用 URL 中的 image_id
+            image_id_from_url = params.get('doc_id')  # parse_url 会把 image_id 解析为 doc_id
+
+            for name in (design_names or []):
                 name_str = str(name).strip()
                 if name_str.isdigit():
                     n = int(name_str)
@@ -4782,6 +4820,13 @@ async def lanhu_get_ai_analyze_design_result(
                             target_designs.append(d)
                             seen_ids.add(d['id'])
                             break
+
+            # 如果没有通过 design_names 匹配到设计图，尝试使用 URL 中的 image_id
+            if not target_designs and image_id_from_url:
+                for d in designs:
+                    if d.get('id') == image_id_from_url:
+                        target_designs.append(d)
+                        break
 
         if not target_designs:
             available_names = [d['name'] for d in designs]
@@ -4970,6 +5015,31 @@ async def lanhu_get_ai_analyze_design_result(
         summary_text += "  仅当 HTML+CSS 中明显缺失某属性时，用 Design Token 补充：\n"
         summary_text += "    如渐变填充、复杂阴影、多边圆角等 CSS 未能完整表达的属性\n"
         summary_text += "  Design Token 不能覆盖 HTML+CSS 中已有的值。\n\n"
+        summary_text += "STEP 5 - 代码完成后逐属性还原度核查（必须执行，不得跳过）：\n"
+        summary_text += "  适用于所有目标平台：HTML/CSS、React、Vue、Flutter、SwiftUI、Compose、Android XML 等。\n"
+        summary_text += "  将设计稿 HTML+CSS 中每个属性映射到目标平台等价写法，逐一核查值是否还原：\n"
+        summary_text += "  ① 尺寸约束：设计稿固定 height 的地方，目标平台不得变为自适应/wrap\n"
+        summary_text += "     HTML: height 不能改成 min-height | Flutter: SizedBox 不能换成 Flexible\n"
+        summary_text += "     SwiftUI: .frame(height:) 不能省略 | Compose: height() 不能用 wrapContent\n"
+        summary_text += "  ② 裁剪：设计稿 overflow:hidden 的容器，各平台必须同步裁剪\n"
+        summary_text += "     HTML: overflow:hidden | Flutter: ClipRect/ClipRRect | SwiftUI: .clipped()\n"
+        summary_text += "     Compose: clip() | Android: android:clipChildren=\"true\"\n"
+        summary_text += "  ③ 颜色值：rgba(r,g,b,a) 转换到目标平台格式时，数值不得偏移\n"
+        summary_text += "     HTML: 保持 rgba() | Flutter: Color.fromRGBO() | SwiftUI: Color(red:green:blue:opacity:)\n"
+        summary_text += "     Compose: Color(r,g,b,a) | Android XML: #AARRGGBB，禁止四舍五入\n"
+        summary_text += "  ④ 渐变：linear-gradient 必须映射为平台渐变，不能退化为纯色\n"
+        summary_text += "     Flutter: LinearGradient | SwiftUI: LinearGradient | Compose: Brush.linearGradient\n"
+        summary_text += "  ⑤ 绝对定位：left/top 坐标值必须原样映射\n"
+        summary_text += "     Flutter: Positioned(left:,top:) | SwiftUI: .offset() | Compose: Modifier.offset()\n"
+        summary_text += "  ⑥ 字体：family、weight、size 三者都必须还原；HTML 还需保留 fallback 顺序\n"
+        summary_text += "  ⑦ 间距：每个方向的 margin/padding 数值不得改动\n"
+        summary_text += "     Flutter: EdgeInsets | SwiftUI: .padding() | Compose: Modifier.padding()\n"
+        summary_text += "     Android: android:layout_margin / android:padding\n"
+        summary_text += "  ⑧ 图片资源：任何图片不得被 SVG/CSS形状/emoji/占位图替换\n"
+        summary_text += "  ⑨ 元素完整性：设计稿中每个可见元素，目标代码中必须对应存在\n"
+        summary_text += "  ⑩ 远程 URL：最终代码中不得残留任何蓝湖 CDN 远程地址\n"
+        summary_text += "  核查结论：对每处差异明确说明是「有意的平台适配（如 px→dp 单位换算）」\n"
+        summary_text += "  还是「错误偏差（值发生了改变）」，错误偏差必须立即修正后再交付。\n\n"
         summary_text += "❌ 严禁行为：\n"
         summary_text += "  - 禁止修改 CSS 属性值（不要改颜色格式、不要简化渐变、不要调整数值）\n"
         summary_text += "  - 禁止凭空编造设计参数（颜色、尺寸、间距等必须来自下方 CSS）\n"
@@ -5137,12 +5207,26 @@ async def lanhu_get_design_slices(
                 'message': designs_data.get('message', 'Failed to get designs')
             }
 
-        # 2. 查找指定的设计图
+        # 2. 解析URL获取参数（提前解析，用于后续匹配和 API 调用）
+        params = extractor.parse_url(url)
+        image_id_from_url = params.get('doc_id')  # parse_url 会把 image_id 解析为 doc_id
+
+        # 3. 查找指定的设计图
+        # 支持：精确名称匹配、image_id 匹配（当 design_name 为空或 URL 中有 image_id 时）
         target_design = None
+
+        # 先尝试按名称匹配
         for design in designs_data['designs']:
             if design['name'] == design_name:
                 target_design = design
                 break
+
+        # 如果名称没匹配到，尝试使用 URL 中的 image_id
+        if not target_design and image_id_from_url:
+            for design in designs_data['designs']:
+                if design.get('id') == image_id_from_url:
+                    target_design = design
+                    break
 
         if not target_design:
             available_names = [d['name'] for d in designs_data['designs']]
@@ -5151,9 +5235,6 @@ async def lanhu_get_design_slices(
                 'message': f"Design '{design_name}' does not exist",
                 'available_designs': available_names
             }
-
-        # 3. 解析URL获取参数
-        params = extractor.parse_url(url)
 
         # 4. 获取切图信息
         slices_data = await extractor.get_design_slices_info(
@@ -5969,6 +6050,5 @@ if __name__ == "__main__":
         SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
         SERVER_PORT = int(os.getenv("SERVER_PORT", "8100"))
         mcp.run(transport="http", path="/mcp", host=SERVER_HOST, port=SERVER_PORT)
-
 
 
